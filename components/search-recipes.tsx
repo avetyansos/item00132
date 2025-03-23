@@ -1,40 +1,53 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Search, Filter } from "lucide-react"
+import { Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RecipeCard } from "@/components/recipe-card"
 import { type Recipe, sampleRecipes } from "@/lib/sample-data"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useToast } from "@/hooks/use-toast"
+import { usePathname } from "next/navigation"
 
 export function SearchRecipes() {
   const [searchQuery, setSearchQuery] = useState("")
   const [cuisineType, setCuisineType] = useState("")
-  const [recipes, setRecipes] = useState<Recipe[]>([])
+  const [recipes, setRecipes] = useState<Recipe[]>(sampleRecipes) // Initialize with all recipes
   const [loading, setLoading] = useState(false)
   const [bookmarks, setBookmarks] = useState<string[]>([])
-  const [hasSearched, setHasSearched] = useState(false)
+  const { toast } = useToast()
+  const pathname = usePathname()
 
-  // Load saved state from localStorage
+  // Load bookmarks from localStorage
   useEffect(() => {
-    // Load bookmarks
     const savedBookmarks = localStorage.getItem("bookmarkedRecipes")
     if (savedBookmarks) {
       setBookmarks(JSON.parse(savedBookmarks))
     }
-
-    // Load previous search state
-    const savedSearchState = localStorage.getItem("recipeSearchState")
-    if (savedSearchState) {
-      const { query, cuisine, results, searched } = JSON.parse(savedSearchState)
-      setSearchQuery(query || "")
-      setCuisineType(cuisine || "")
-      setRecipes(results || [])
-      setHasSearched(searched || false)
-    }
   }, [])
+
+  // Reset filters when navigating away and back to home page
+  useEffect(() => {
+    const handleRouteChange = () => {
+      // Only reset if we're on the home page
+      if (pathname === "/") {
+        // Check if we're coming back to the home page
+        const lastPath = sessionStorage.getItem("lastPath")
+        if (lastPath && lastPath !== "/") {
+          // Reset filters
+          setSearchQuery("")
+          setCuisineType("")
+          setRecipes(sampleRecipes)
+        }
+      }
+      // Store current path for next comparison
+      sessionStorage.setItem("lastPath", pathname)
+    }
+
+    handleRouteChange()
+  }, [pathname])
 
   // Set up event listener for bookmark changes
   useEffect(() => {
@@ -56,22 +69,12 @@ export function SearchRecipes() {
     }
   }, [])
 
-  // Save search state to localStorage
+  // Auto-filter recipes when search query or cuisine type changes
   useEffect(() => {
-    const searchState = {
-      query: searchQuery,
-      cuisine: cuisineType,
-      results: recipes,
-      searched: hasSearched,
-    }
-    localStorage.setItem("recipeSearchState", JSON.stringify(searchState))
-  }, [searchQuery, cuisineType, recipes, hasSearched])
-
-  const handleSearch = () => {
     setLoading(true)
 
-    // Simulate API call with timeout
-    setTimeout(() => {
+    // Short delay to prevent too many updates while typing
+    const timer = setTimeout(() => {
       let filteredRecipes = [...sampleRecipes]
 
       if (searchQuery) {
@@ -87,30 +90,52 @@ export function SearchRecipes() {
       }
 
       setRecipes(filteredRecipes)
-      setHasSearched(true)
       setLoading(false)
-    }, 800)
-  }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [searchQuery, cuisineType])
 
   const toggleBookmark = (recipeId: string) => {
-    const newBookmarks = bookmarks.includes(recipeId)
-      ? bookmarks.filter((id) => id !== recipeId)
-      : [...bookmarks, recipeId]
+    const recipe = sampleRecipes.find((r) => r.id === recipeId)
+    if (!recipe) return
+
+    const isCurrentlyBookmarked = bookmarks.includes(recipeId)
+    const newBookmarks = isCurrentlyBookmarked ? bookmarks.filter((id) => id !== recipeId) : [...bookmarks, recipeId]
 
     setBookmarks(newBookmarks)
     localStorage.setItem("bookmarkedRecipes", JSON.stringify(newBookmarks))
 
     // Dispatch custom event to notify other components
     window.dispatchEvent(new Event("bookmarksUpdated"))
+
+    // Show toast notification with undo option when removing a bookmark
+    if (isCurrentlyBookmarked) {
+      toast({
+        title: "Recipe removed from bookmarks",
+        description: `"${recipe.title}" has been removed from your bookmarks.`,
+        action: (
+          <Button
+            variant="outline"
+            onClick={() => {
+              // Restore the bookmark
+              const updatedBookmarks = [...newBookmarks, recipeId]
+              setBookmarks(updatedBookmarks)
+              localStorage.setItem("bookmarkedRecipes", JSON.stringify(updatedBookmarks))
+              window.dispatchEvent(new Event("bookmarksUpdated"))
+            }}
+          >
+            Undo
+          </Button>
+        ),
+      })
+    }
   }
 
   // Clear search results and state
   const handleClearSearch = () => {
     setSearchQuery("")
     setCuisineType("")
-    setRecipes([])
-    setHasSearched(false)
-    localStorage.removeItem("recipeSearchState")
   }
 
   return (
@@ -123,17 +148,12 @@ export function SearchRecipes() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                handleSearch()
-              }
-            }}
           />
         </div>
         <div className="w-full md:w-64">
           <Select value={cuisineType} onValueChange={setCuisineType}>
             <SelectTrigger>
-              <SelectValue placeholder="Cuisine Type" />
+              <SelectValue placeholder="All Cuisines" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Cuisines</SelectItem>
@@ -145,13 +165,9 @@ export function SearchRecipes() {
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={handleSearch} className="md:w-auto">
-          <Filter className="mr-2 h-4 w-4" />
-          Search
-        </Button>
-        {hasSearched && (
+        {(searchQuery || cuisineType) && (
           <Button variant="outline" onClick={handleClearSearch} className="md:w-auto">
-            Clear
+            Clear Filters
           </Button>
         )}
       </div>
@@ -181,9 +197,7 @@ export function SearchRecipes() {
             </div>
           ) : (
             <div className="text-center py-12">
-              <p className="text-muted-foreground">
-                {hasSearched ? "No recipes found. Try a different search." : "Search for recipes to get started."}
-              </p>
+              <p className="text-muted-foreground">No recipes found. Try a different search.</p>
             </div>
           )}
         </>

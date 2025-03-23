@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Clock, ArrowLeft, BookmarkIcon } from "lucide-react"
 import Image from "next/image"
 import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/hooks/use-toast"
 
 export default function RecipeDetailPage() {
   const params = useParams()
@@ -15,6 +16,7 @@ export default function RecipeDetailPage() {
   const [recipe, setRecipe] = useState<Recipe | null>(null)
   const [isBookmarked, setIsBookmarked] = useState(false)
   const [bookmarks, setBookmarks] = useState<string[]>([])
+  const { toast } = useToast()
 
   useEffect(() => {
     // Find the recipe by ID
@@ -45,6 +47,29 @@ export default function RecipeDetailPage() {
 
     // Dispatch custom event to notify other components
     window.dispatchEvent(new Event("bookmarksUpdated"))
+
+    // Show toast notification with undo option when removing a bookmark
+    if (isBookmarked) {
+      toast({
+        title: "Recipe removed from bookmarks",
+        description: `"${recipe.title}" has been removed from your bookmarks.`,
+        action: (
+          <Button
+            variant="outline"
+            onClick={() => {
+              // Restore the bookmark
+              const restoredBookmarks = [...updatedBookmarks, recipe.id]
+              setBookmarks(restoredBookmarks)
+              setIsBookmarked(true)
+              localStorage.setItem("bookmarkedRecipes", JSON.stringify(restoredBookmarks))
+              window.dispatchEvent(new Event("bookmarksUpdated"))
+            }}
+          >
+            Undo
+          </Button>
+        ),
+      })
+    }
   }
 
   if (!recipe) {

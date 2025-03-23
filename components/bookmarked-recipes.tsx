@@ -3,10 +3,13 @@
 import { useState, useEffect } from "react"
 import { RecipeCard } from "@/components/recipe-card"
 import { type Recipe, sampleRecipes } from "@/lib/sample-data"
+import { useToast } from "@/hooks/use-toast"
+import { Button } from "@/components/ui/button"
 
 export function BookmarkedRecipes() {
   const [bookmarks, setBookmarks] = useState<string[]>([])
   const [bookmarkedRecipes, setBookmarkedRecipes] = useState<Recipe[]>([])
+  const { toast } = useToast()
 
   // Load bookmarks and update when localStorage changes
   useEffect(() => {
@@ -41,6 +44,9 @@ export function BookmarkedRecipes() {
   }, [])
 
   const toggleBookmark = (recipeId: string) => {
+    const recipe = bookmarkedRecipes.find((r) => r.id === recipeId)
+    if (!recipe) return
+
     const updatedBookmarks = bookmarks.filter((id) => id !== recipeId)
     setBookmarks(updatedBookmarks)
     localStorage.setItem("bookmarkedRecipes", JSON.stringify(updatedBookmarks))
@@ -50,6 +56,31 @@ export function BookmarkedRecipes() {
 
     // Dispatch custom event to notify other components
     window.dispatchEvent(new Event("bookmarksUpdated"))
+
+    // Show toast notification with undo option
+    toast({
+      title: "Recipe removed from bookmarks",
+      description: `"${recipe.title}" has been removed from your bookmarks.`,
+      action: (
+        <Button
+          variant="outline"
+          onClick={() => {
+            // Restore the bookmark
+            const restoredBookmarks = [...updatedBookmarks, recipeId]
+            setBookmarks(restoredBookmarks)
+            localStorage.setItem("bookmarkedRecipes", JSON.stringify(restoredBookmarks))
+
+            // Update displayed recipes
+            setBookmarkedRecipes((prev) => [...prev, recipe])
+
+            // Notify other components
+            window.dispatchEvent(new Event("bookmarksUpdated"))
+          }}
+        >
+          Undo
+        </Button>
+      ),
+    })
   }
 
   return (
